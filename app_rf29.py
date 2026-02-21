@@ -1,15 +1,20 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import os
+from streamlit_gsheets import GSheetsConnection
 
-# Archivo de base de datos
-DATA_FILE = "registro_accesos_gar.csv"
+# --- CONEXIÓN A GOOGLE SHEETS ---
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 def cargar_datos():
-    if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE)
-    else:
+    try:
+        # Lee los datos directamente desde la nube
+        df = conn.read()
+        if df.empty:
+            return pd.DataFrame(columns=["Fecha_Hora", "Movimiento", "Nombre", "RUT_SAP", "Empresa", "Cuerpo_Liquido", "Autorizador", "Motivo"])
+        return df
+    except Exception:
+        # Si hay un error de conexión, devuelve un formato en blanco
         return pd.DataFrame(columns=["Fecha_Hora", "Movimiento", "Nombre", "RUT_SAP", "Empresa", "Cuerpo_Liquido", "Autorizador", "Motivo"])
 
 # --- LISTAS EXACTAS EXTRAÍDAS DE TU PDF ---
@@ -46,11 +51,8 @@ if 'motivo' not in st.session_state:
 st.sidebar.markdown("---")
 clave = st.sidebar.text_input("🔑 Acceso Administrador", type="password")
 
-# El menú por defecto solo tiene el formulario
 opciones_menu = ["Formulario de Acceso"]
-
-# Si tú escribes la clave correcta, aparece el Dashboard
-if clave == "GAR2026":  # <-- Puedes cambiar esta clave por la que tú quieras
+if clave == "GAR2026": 
     opciones_menu.append("Dashboard en Vivo")
 
 menu = st.sidebar.radio("Navegación", opciones_menu)
@@ -69,9 +71,9 @@ if menu == "Formulario de Acceso":
         if st.button("Siguiente ➡️"):
             st.session_state.movimiento = movimiento
             if movimiento == "Ingreso":
-                st.session_state.paso = 2 # Va a Sección 2
+                st.session_state.paso = 2
             else:
-                st.session_state.paso = 3 # Salta a Sección 3
+                st.session_state.paso = 3
             st.rerun()
 
     # --- PASO 2: AUTORIZACIÓN (SOLO PARA INGRESO) ---
@@ -96,7 +98,7 @@ if menu == "Formulario de Acceso":
                 else:
                     st.session_state.autorizador = autorizador
                     st.session_state.motivo = motivo
-                    st.session_state.paso = 3 # Avanza a Sección 3
+                    st.session_state.paso = 3
                     st.rerun()
 
     # --- PASO 3: DATOS PERSONALES Y LUGAR ---
@@ -113,9 +115,9 @@ if menu == "Formulario de Acceso":
         with col1:
             if st.button("⬅️ Atrás"):
                 if st.session_state.movimiento == "Ingreso":
-                    st.session_state.paso = 2 # Vuelve a Sección 2
+                    st.session_state.paso = 2
                 else:
-                    st.session_state.paso = 1 # Vuelve al inicio
+                    st.session_state.paso = 1
                 st.rerun()
         with col2:
             if st.button("Enviar ✅"):
@@ -124,7 +126,6 @@ if menu == "Formulario de Acceso":
                 elif cuerpo_liquido == "Seleccione el cuerpo líquido...":
                     st.error("⚠️ Debe seleccionar el 'Cuerpo liquido'.")
                 else:
-                    # Guardar los datos según el tipo de movimiento
                     aut_final = st.session_state.autorizador if st.session_state.movimiento == "Ingreso" else "N/A (Salida)"
                     mot_final = st.session_state.motivo if st.session_state.movimiento == "Ingreso" else "N/A (Salida)"
                     
@@ -138,20 +139,20 @@ if menu == "Formulario de Acceso":
                         "Autorizador": aut_final,
                         "Motivo": mot_final
                     }
+                    
+                    # Carga y actualiza Google Sheets
                     df = cargar_datos()
                     df = pd.concat([df, pd.DataFrame([nuevo_registro])], ignore_index=True)
-                    df.to_csv(DATA_FILE, index=False)
+                    conn.update(data=df)
                     
-                    st.success(f"🎉 ¡Formulario de {st.session_state.movimiento} enviado correctamente para {nombre}!")
+                    st.success(f"🎉 ¡Formulario de {st.session_state.movimiento} enviado correctamente!")
                     
-                    # Reiniciar el formulario para la siguiente persona
+                    import time
+                    time.sleep(2)
                     st.session_state.paso = 1
                     st.session_state.movimiento = ""
                     st.session_state.autorizador = ""
                     st.session_state.motivo = ""
-                    # Ocultar el mensaje de éxito después de un momento y recargar
-                    import time
-                    time.sleep(2)
                     st.rerun()
 
 elif menu == "Dashboard en Vivo":
@@ -159,7 +160,6 @@ elif menu == "Dashboard en Vivo":
     df = cargar_datos()
     
     if not df.empty:
-        # Calcular quién está adentro cruzando el RUT_SAP
         estado_actual = df.sort_values("Fecha_Hora").groupby("RUT_SAP").tail(1)
         adentro = estado_actual[estado_actual["Movimiento"] == "Ingreso"]
         
@@ -176,4 +176,5 @@ elif menu == "Dashboard en Vivo":
         st.subheader("Historial Completo de Registros")
         st.dataframe(df.tail(15), use_container_width=True)
     else:
-        st.info("Aún no hay respuestas en el formulario.")
+        st.info("Aún no hay respuestas en la base de datos.")
+
