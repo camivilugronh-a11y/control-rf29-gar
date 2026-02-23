@@ -8,8 +8,12 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def cargar_datos():
     try:
-        # Lee los datos directamente desde la nube
-        df = conn.read()
+        # ttl=0 obliga a Streamlit a descargar los datos en vivo, ignorando la caché
+        df = conn.read(ttl=0)
+        
+        # Limpiamos filas completamente vacías que Google Sheets suele generar
+        df = df.dropna(how="all") 
+        
         if df.empty:
             return pd.DataFrame(columns=["Fecha_Hora", "Movimiento", "Nombre", "RUT_SAP", "Empresa", "Cuerpo_Liquido", "Autorizador", "Motivo"])
         return df
